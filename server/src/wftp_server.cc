@@ -1,6 +1,6 @@
 /*
  * $File: wftp_server.cc
- * $Date: Mon Dec 16 19:44:10 2013 +0800
+ * $Date: Mon Dec 16 20:22:14 2013 +0800
  * $Author: jiakai <jia.kai66@gmail.com>
  */
 
@@ -18,6 +18,8 @@
 #include <map>
 
 #include <unistd.h>
+#include <sys/stat.h>
+#include <sys/types.h>
 
 class WFTPServer::ClientHandler {
 	bool m_pasv_mode = false;
@@ -31,7 +33,7 @@ class WFTPServer::ClientHandler {
 	char m_buf[1024 * 1024];
 
 	class ClientExit { };
-	class FinishHandling { };
+	class AbortCurrentFTPCommand { };
 
 	// FEAT
 	void do_feat() {
@@ -83,8 +85,7 @@ class WFTPServer::ClientHandler {
 
 	// LIST and NLST
 	void do_list() {
-		auto data_conn = get_data_conn();
-		m_parser.send("150", "Hohoho, directory listing is coming!");
+		auto data_conn = get_data_conn("start directory listing");
 
 		const char* opt = m_cur_cmd.cmd == "LIST" ? "-al" : "-a";
 		std::string path = m_cur_cmd.arg;
@@ -115,7 +116,7 @@ class WFTPServer::ClientHandler {
 				exit(-1);
 			});
 
-		finish_transfer(data_conn, "finished listing");
+		close_data_conn(data_conn, "finished listing");
 	}
 
 	// CWD
@@ -155,16 +156,17 @@ class WFTPServer::ClientHandler {
 			m_parser.send("550", ssprintf("failed to open `%s'", m_cur_cmd.arg.c_str()));
 			return;
 		}
-		auto data_conn = get_data_conn();
-		m_parser.send("150", ssprintf("going to transfer %s",
-					m_cur_cmd.arg.c_str()));
+		AutoCloser _ac(fin);
+		auto data_conn = get_data_conn(
+				ssprintf("going to transfer %s", m_cur_cmd.arg.c_str()));
+
 		for (; ;) {
 			auto size = fread(m_buf, 1, sizeof(m_buf), fin);
 			if (size <= 0)
 				break;
 			data_conn->send(m_buf, size);
 		}
-		finish_transfer(data_conn, "transfer completed");
+		close_data_conn(data_conn, "transfer completed");
 	}
 
 	// ALLO
@@ -182,19 +184,58 @@ class WFTPServer::ClientHandler {
 						m_cur_cmd.arg.c_str()));
 			return;
 		}
-		auto data_conn = get_data_conn();
-		m_parser.send("150", "OK to transfer");
+		AutoCloser _ac(fout);
+		auto data_conn = get_data_conn("OK to transfer");
+		off_t tot_size = 0;
 		for (; ;) {
 			auto size = data_conn->recv(m_buf, sizeof(m_buf));
 			if (size <= 0)
 				break;
-			fwrite(m_buf, 1, sizeof(m_buf), fout);
+			tot_size += size;
+			fwrite(m_buf, 1, size, fout);
 		}
-		wftp_log("recevied file %s", realpath.c_str());
-		finish_transfer(data_conn, "transfer complete");
+		wftp_log("recevied file `%s', size=%llu", realpath.c_str(),
+				(unsigned long long)tot_size);
+		close_data_conn(data_conn, "transfer complete");
 	}
 
-	void finish_transfer(std::shared_ptr<SocketBase> socket, const char *msg) {
+	// DELE and RMD
+	void do_remove() {
+		bool suc;
+		auto realpath = safe_realpath(m_cur_cmd.arg, &suc);
+		if (!suc) {
+			m_parser.send("550", "file not found");
+			return;
+		}
+		int rst;
+		if (m_cur_cmd.cmd == "DELE")
+			rst = unlink(realpath.c_str());
+		else
+			rst = rmdir(realpath.c_str());
+		if (rst)
+			m_parser.send("550", ssprintf("failed to delete `%s': %m",
+						m_cur_cmd.arg.c_str()));
+		else
+			m_parser.send("250", ssprintf("delete `%s' ok",
+						m_cur_cmd.arg.c_str()));
+	}
+
+	// MKD
+	void do_mkd() {
+		bool suc;
+		auto realpath = safe_realpath(m_cur_cmd.arg, &suc, true);
+		if (!suc) {
+			m_parser.send("550", "parent directory not exist");
+			return;
+		}
+		if (mkdir(realpath.c_str(), 0755))
+			m_parser.send("550", ssprintf("failed to mkdir `%s': %m",
+					realpath.c_str()));
+		else
+			m_parser.send("257", "mkdir OK");
+	}
+
+	void close_data_conn(std::shared_ptr<SocketBase> socket, const char *msg) {
 		usleep(1000);
 		m_parser.send("226", msg);
 		socket->close();
@@ -242,12 +283,13 @@ class WFTPServer::ClientHandler {
 		return ret;
 	}
 
-	std::shared_ptr<SocketBase> get_data_conn() {
+	std::shared_ptr<SocketBase> get_data_conn(const std::string &msg) {
 		if (!m_pasv_mode) {
 			m_parser.send("425", "use PASV first");
-			throw FinishHandling();
+			throw AbortCurrentFTPCommand();
 		}
 		auto rst = m_data_srv->accept();
+		m_parser.send("125", msg);
 		rst->enable_timeout();
 		return rst;
 	}
@@ -270,6 +312,9 @@ class WFTPServer::ClientHandler {
 			{"RETR", &ClientHandler::do_retr},
 			{"ALLO", &ClientHandler::do_allo},
 			{"STOR", &ClientHandler::do_stor},
+			{"DELE", &ClientHandler::do_remove},
+			{"RMD", &ClientHandler::do_remove},
+			{"MKD", &ClientHandler::do_mkd},
 		};
 		m_cur_cmd = m_parser.recv();
 		wftp_log("got command from %s: %s %s", get_peerinfo(),
@@ -302,7 +347,7 @@ class WFTPServer::ClientHandler {
 				for (; ;) {
 					try {
 						handle_cmd();
-					} catch (FinishHandling) {
+					} catch (AbortCurrentFTPCommand) {
 					}
 				}
 			} catch (ClientExit) {

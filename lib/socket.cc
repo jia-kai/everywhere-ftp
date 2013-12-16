@@ -1,6 +1,6 @@
 /*
  * $File: socket.cc
- * $Date: Mon Dec 16 19:44:35 2013 +0800
+ * $Date: Mon Dec 16 20:00:37 2013 +0800
  * $Author: jiakai <jia.kai66@gmail.com>
  */
 
@@ -120,7 +120,6 @@ bool SocketBase::is_closed() {
 		return false;
 	int n = 0;
 	ioctl(m_fd, FIONREAD, &n);
-	wftp_log("%d", n);
 	return n == 0;
 }
 

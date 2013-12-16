@@ -1,6 +1,6 @@
 /*
  * $File: cmdparser.hh
- * $Date: Mon Dec 16 12:11:23 2013 +0800
+ * $Date: Mon Dec 16 20:07:57 2013 +0800
  * $Author: jiakai <jia.kai66@gmail.com>
  */
 
@@ -50,14 +50,13 @@ class CMDParser {
 
 		void send(const std::string &cmd,
 				const std::string &arg = std::string()) {
+			static thread_local std::string buf;
 			if (arg.empty())
-				m_socket->send(cmd.c_str(), cmd.size());
-			else {
-				m_socket->send(cmd.c_str(), cmd.length());
-				m_socket->send(" ", 1);
-				m_socket->send(arg.c_str(), arg.size());
-			}
-			m_socket->send("\r\n", 2);
+				buf = cmd;
+			else
+				buf = cmd + " " + arg;
+			buf.append("\r\n");
+			m_socket->send(buf.c_str(), buf.length());
 		}
 };
 

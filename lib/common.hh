@@ -1,6 +1,6 @@
 /*
  * $File: common.hh
- * $Date: Mon Dec 16 17:31:31 2013 +0800
+ * $Date: Mon Dec 16 20:13:37 2013 +0800
  * $Author: jiakai <jia.kai66@gmail.com>
  */
 
@@ -11,7 +11,20 @@
 #include <exception>
 #include <string>
 #include <sstream>
+#include <cstdio>
 
+class AutoCloser {
+	FILE *m_fptr;
+	public:
+		AutoCloser(FILE *fptr):
+			m_fptr(fptr)
+		{ }
+
+		~AutoCloser() {
+			if (m_fptr)
+				fclose(m_fptr);
+		}
+};
 
 /*!
  * \brief string stream with C printf-like functions

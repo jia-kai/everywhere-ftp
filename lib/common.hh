@@ -1,12 +1,12 @@
 /*
  * $File: common.hh
- * $Date: Mon Dec 16 10:34:11 2013 +0800
+ * $Date: Mon Dec 16 15:14:44 2013 +0800
  * $Author: jiakai <jia.kai66@gmail.com>
  */
 
 #pragma once
 
-#define WFTP_NAME		"WFTP (weak FTP, 0.0.1)"
+#define WFTP_NAME		"WFTP (everyWhereFTP, 0.0.1)"
 
 #include <exception>
 #include <string>

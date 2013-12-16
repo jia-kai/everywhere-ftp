@@ -1,6 +1,6 @@
 /*
  * $File: socket.hh
- * $Date: Mon Dec 16 12:12:35 2013 +0800
+ * $Date: Mon Dec 16 17:44:01 2013 +0800
  * $Author: jiakai <jia.kai66@gmail.com>
  */
 
@@ -15,16 +15,10 @@ class SocketBase {
 	public:
 		typedef unsigned addr_t;
 
-		static std::string format_addr(addr_t addr, const char sep = '.') {
-			return ssprintf("%d%c%d%c%d%c%d",
-					(addr>>24)&0xFF, sep,
-					(addr>>16)&0xFF, sep,
-					(addr>>8)&0xFF, sep,
-					addr&0xFF);
-		}
+		SocketBase(const SocketBase &) = delete;
+		~SocketBase();
 
-		SocketBase() = default;
-		SocketBase(const SocketBase &s) = default;
+		SocketBase& operator = (const SocketBase &) = delete;
 
 		void send(const void *buf, size_t size);
 		void recv_fixsize(void *buf, size_t size);
@@ -44,6 +38,15 @@ class SocketBase {
 			if (start < size)
 				send(msg + start, size - start);
 		}
+
+		static std::string format_addr(addr_t addr, const char sep = '.') {
+			return ssprintf("%d%c%d%c%d%c%d",
+					(addr>>24)&0xFF, sep,
+					(addr>>16)&0xFF, sep,
+					(addr>>8)&0xFF, sep,
+					addr&0xFF);
+		}
+
 
 		void close();
 
@@ -77,8 +80,14 @@ class SocketBase {
 
 		void set_socket_fd(int fd);
 
+		int get_socket_fd() const {
+			return m_fd;
+		}
+
+		SocketBase() = default;
+
 	private:
-		std::shared_ptr<FDCloser> m_fd;
+		int m_fd = -1;
 		std::string m_peerinfo;
 
 		addr_t m_local_addr;
@@ -88,8 +97,6 @@ class SocketBase {
 };
 
 class ServerSocket: public SocketBase {
-	FDCloser m_srvsock;
-
 	public:
 		/*!
 		 * \brief pass 0 to *port* to use an ephemeral port

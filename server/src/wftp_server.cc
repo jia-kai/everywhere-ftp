@@ -1,6 +1,6 @@
 /*
  * $File: wftp_server.cc
- * $Date: Mon Dec 16 12:23:32 2013 +0800
+ * $Date: Mon Dec 16 17:44:14 2013 +0800
  * $Author: jiakai <jia.kai66@gmail.com>
  */
 
@@ -8,7 +8,9 @@
 #include "common.hh"
 #include "socket.hh"
 #include "cmdparser.hh"
+#include "util.hh"
 
+#include <cctype>
 #include <climits>
 #include <cstdlib>
 #include <thread>
@@ -16,16 +18,16 @@
 #include <map>
 
 #include <unistd.h>
-#include <sys/types.h>
-#include <sys/wait.h>
 
 class WFTPServer::ClientHandler {
 	bool m_pasv_mode = false;
 	WFTPServer &m_server;
 	CMDParser m_parser;
 	std::shared_ptr<SocketBase> m_ctrl;
-	ServerSocket m_data_srv;
+	std::shared_ptr<ServerSocket> m_data_srv;
 	std::string m_working_dir = "/";
+	CMDPair m_cur_cmd;
+	int m_cli_id;
 
 	class ClientExit { };
 	class FinishHandling { };
@@ -44,7 +46,9 @@ class WFTPServer::ClientHandler {
 	void do_pasv() {
 		m_pasv_mode = true;
 		auto addr = m_ctrl->local_addr();
-		auto port = m_data_srv.local_port();
+		m_data_srv = std::make_shared<ServerSocket>(0);
+		m_data_srv->enable_timeout();
+		auto port = m_data_srv->local_port();
 		m_parser.send("227", ssprintf(
 					"Entering Passive Mode (%s,%d,%d).",
 					SocketBase::format_addr(addr, ',').c_str(),
@@ -71,71 +75,133 @@ class WFTPServer::ClientHandler {
 		m_parser.send("215", "UNIX Type: L8");
 	}
 
-	// LIST
+	// TYPE
+	void do_type() {
+		m_parser.send("200", "well, I always run in binary mode");
+	}
+
+	// LIST and NLST
 	void do_list() {
 		auto data_conn = get_data_conn();
 		m_parser.send("150", "Hohoho, directory listing is coming!");
 
-		int pipefd[2];
-		if (pipe(pipefd))
-			throw WFTPError("pipe: %m");
+		const char* opt = m_cur_cmd.cmd == "LIST" ? "-al" : "-a";
+		std::string path = m_cur_cmd.arg;
 
-		pid_t chpid = fork();
-		if (chpid < 0)
-			throw WFTPError("fork: %m");
-		if (!chpid) {
-			// in child
-			close(pipefd[0]);
-			if (dup2(pipefd[1], fileno(stdout)) < 0)
-				throw WFTPError("dup2 stdout: %m");
-			if (dup2(pipefd[1], fileno(stderr)) < 0)
-				throw WFTPError("dup2 stderr: %m");
-			execl("/bin/sh", "sh", "-c",
-					ssprintf("ls --color=always -alh %s",
-						get_realpath(".").c_str()).c_str(), nullptr);
-			printf("failed to exec ls: %m\n");
-			exit(-1);
-		}
-
-		close(pipefd[1]);
-		char buf[1024];
-		for (; ;) {
-			auto size = read(pipefd[0], buf, sizeof(buf));
-			if (size <= 0) {
-				auto w = waitpid(chpid, nullptr, 0);
-				if (w == -1)
-					throw WFTPError("waitpid %d: %m", chpid);
-				if (w == chpid)
+		while (path[0] == '-') { // ignore all options (sent by chrome)
+			for (size_t i = 0; i < path.size(); i ++)
+				if (std::isspace(path[i])) {
+					path.erase(0, i + 1);
 					break;
-			}
-			else
-				data_conn->send_crlf(buf, size);
+				}
+			if (path[0] == '-') // no space, totally opt
+				path = ".";
 		}
-		close(pipefd[0]);
+		if (path.empty())
+			path = ".";
+		wftp_log("client %s: list dir: %s", get_peerinfo(), path.c_str());
+		path = safe_realpath(path);
+		std::string ls_cmd = ssprintf("ls %s %s | tail -n +2", opt, path.c_str());
 
-		data_conn->close();
-		m_parser.send("226", "finished listing");
+		capture_subproc_output(
+			[data_conn](const void *buf, size_t size) {
+				data_conn->send_crlf(static_cast<const char*>(buf), size);
+			},
+			[this, &ls_cmd]() {
+				setenv("LC_ALL", "C", 1);
+				execl("/bin/sh", "sh", "-c", ls_cmd.c_str(), nullptr);
+				printf("failed to exec ls: %m\n");
+				exit(-1);
+			});
+
+		finish_transfer(data_conn, "finished listing");
 	}
 
-	std::string get_realpath(const char *fname) {
-		char *rst;
-		if (fname[0] == '/')
-			rst = realpath((m_server.m_rootdir + fname).c_str(), nullptr);
+	// CWD
+	void do_cwd() {
+		auto new_dir = safe_realpath(m_cur_cmd.arg);
+		if (!isdir(new_dir.c_str())) {
+			m_parser.send("550", "failed to chdir");
+			return;
+		}
+		m_working_dir = new_dir;
+		m_working_dir.erase(0, m_server.m_rootdir.length() - 1);
+		m_parser.send("250", ssprintf("working dir changed to %s",
+					m_working_dir.c_str()).c_str());
+
+		wftp_log("client %s: chdir: %s", get_peerinfo(),
+				m_working_dir.c_str());
+	}
+
+	// SIZE
+	void do_size() {
+		bool suc;
+		std::string size,
+			realpath = safe_realpath(m_cur_cmd.arg, &suc);
+		if (!suc)
+			size = "can not get size of " + m_cur_cmd.arg;
 		else
-			rst = realpath((m_server.m_rootdir + m_working_dir + fname)
+			size = get_filesize(realpath.c_str(), &suc);
+		m_parser.send(suc ? "213" : "550", size);
+	}
+
+	// RETR
+	void do_retr() {
+		bool suc;
+		auto realpath = safe_realpath(m_cur_cmd.arg, &suc);
+		FILE *fin = suc ? fopen(realpath.c_str(), "rb") : nullptr;
+		if (!fin) {
+			m_parser.send("550", ssprintf("failed to open `%s'", m_cur_cmd.arg.c_str()));
+			return;
+		}
+		auto data_conn = get_data_conn();
+		m_parser.send("150", ssprintf("going to transfer %s",
+					m_cur_cmd.arg.c_str()));
+		static thread_local char buf[1024 * 1024];
+		for (; ;) {
+			auto size = fread(buf, 1, sizeof(buf), fin);
+			if (size <= 0)
+				break;
+			data_conn->send(buf, size);
+		}
+		finish_transfer(data_conn, "transfer completed");
+	}
+
+	void finish_transfer(std::shared_ptr<SocketBase> socket, const char *msg) {
+		usleep(1000);
+		m_parser.send("226", msg);
+		socket->close();
+	}
+
+	std::string safe_realpath(const std::string &fpath,
+			bool *successful = nullptr) {
+		if (successful)
+			*successful = false;
+		auto &rootdir = m_server.m_rootdir;
+		char *rst;
+		if (fpath[0] == '/')
+			rst = realpath((rootdir + fpath).c_str(), nullptr);
+		else
+			rst = realpath((rootdir + m_working_dir + "/" + fpath)
 					.c_str(), nullptr);
 		if (!rst)
 			return m_server.m_rootdir;
 		std::string ret(rst);
 		free(rst);
+		if (ret.substr(0, rootdir.length()) != rootdir)
+			ret = rootdir;
+		else if (successful)
+			*successful = true;
 		return ret;
 	}
 
 	std::shared_ptr<SocketBase> get_data_conn() {
-		wftp_log("waiting data conn");
-		auto rst = m_data_srv.accept();
+		if (!m_pasv_mode) {
+			m_parser.send("425", "use PASV first");
+			throw FinishHandling();
+		}
+		auto rst = m_data_srv->accept();
 		rst->enable_timeout();
-		wftp_log("data conn peer: %s", rst->get_peerinfo());
 		return rst;
 	}
 
@@ -150,27 +216,35 @@ class WFTPServer::ClientHandler {
 			{"PASS", &ClientHandler::do_pass},
 			{"SYST", &ClientHandler::do_syst},
 			{"LIST", &ClientHandler::do_list},
+			{"NLST", &ClientHandler::do_list},
+			{"TYPE", &ClientHandler::do_type},
+			{"CWD", &ClientHandler::do_cwd},
+			{"SIZE", &ClientHandler::do_size},
+			{"RETR", &ClientHandler::do_retr},
 		};
-		auto cmd = m_parser.recv();
-		wftp_log("got command from %s: %s", get_peerinfo(), cmd.cmd.c_str());
-		auto hdl = HANDLER_MAP.find(cmd.cmd);
+		m_cur_cmd = m_parser.recv();
+		wftp_log("got command from %s: %s %s", get_peerinfo(),
+				m_cur_cmd.cmd.c_str(), m_cur_cmd.arg.c_str());
+		auto hdl = HANDLER_MAP.find(m_cur_cmd.cmd);
 		if (hdl != HANDLER_MAP.end())
 			(this->*(hdl->second))();
 		else {
-			wftp_log("unknown command: %s", cmd.cmd.c_str());
+			wftp_log("unknown command: %s", m_cur_cmd.cmd.c_str());
 			m_parser.send("502",
-					ssprintf("command %s unimplemented", cmd.cmd.c_str()));
+					ssprintf("command %s unimplemented", m_cur_cmd.cmd.c_str()));
 		}
 	}
 
 	public:
 		ClientHandler(WFTPServer &server,
-				const std::shared_ptr<SocketBase> &socket):
+				const std::shared_ptr<SocketBase> &socket,
+				int cli_id = -1):
 			m_server(server), m_parser(socket), m_ctrl(socket),
-			m_data_srv(0)
+			m_cli_id(cli_id)
 		{
 			m_ctrl->enable_timeout();
-			m_data_srv.enable_timeout();
+			wftp_log("new client: %s [as %s]", m_ctrl->get_peerinfo(),
+					get_peerinfo());
 		}
 
 		void run() {
@@ -187,6 +261,11 @@ class WFTPServer::ClientHandler {
 		}
 
 		const char *get_peerinfo() const {
+			if (m_cli_id >= 0) {
+				static thread_local char buf[20];
+				sprintf(buf, "%d", m_cli_id);
+				return buf;
+			}
 			return m_ctrl->get_peerinfo();
 		}
 };
@@ -202,6 +281,8 @@ void WFTPServer::set_rootdir(const char *dir) {
 				dir);
 	m_rootdir.assign(p);
 	free(p);
+	if (m_rootdir.back() != '/')
+		m_rootdir.append("/");
 }
 
 void WFTPServer::worker_thread(ClientHandler *client) {
@@ -227,9 +308,8 @@ void WFTPServer::serve_forever() {
 	wftp_log("listening on %s:%d ...",
 			SocketBase::format_addr(socket.local_addr()).c_str(),
 			socket.local_port());
-	for (; ;) {
-		ClientHandler *client = new ClientHandler(*this, socket.accept());
-		wftp_log("connected by %s", client->get_peerinfo());
+	for (int cli_id = 0; ; cli_id ++) {
+		ClientHandler *client = new ClientHandler(*this, socket.accept(), cli_id);
 		std::thread sub(worker_thread, client);
 		sub.detach();
 	}

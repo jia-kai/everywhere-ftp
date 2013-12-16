@@ -1,10 +1,11 @@
 /*
  * $File: socket.cc
- * $Date: Mon Dec 16 10:19:27 2013 +0800
+ * $Date: Mon Dec 16 17:44:09 2013 +0800
  * $Author: jiakai <jia.kai66@gmail.com>
  */
 
 #define SOCKET_TIMEOUT	100
+#define SET_TCP_NODELAY
 
 #include "socket.hh"
 #include "common.hh"
@@ -27,12 +28,19 @@ SocketBase::SocketBase(int fd) {
 	set_socket_fd(fd);
 }
 
+SocketBase::~SocketBase() {
+	close();
+}
+
 void SocketBase::set_socket_fd(int fd) {
-	m_fd.reset(new FDCloser(fd));
+	m_fd = fd;
+
+#ifdef SET_TCP_NODELAY
 	int flag = 1;
 	if (setsockopt(fd, IPPROTO_TCP, TCP_NODELAY,
 				(const char*)&flag, sizeof(flag)))
 		throw WFTPError("failed to setsockopt: %s", strerror(errno));
+#endif
 
 
 	struct sockaddr_in local_addr;
@@ -55,19 +63,19 @@ std::shared_ptr<SocketBase> SocketBase::make_from_fd(
 }
 
 void SocketBase::close() {
-	if (m_fd) {
-		m_fd->close();
-		m_fd.reset();
+	if (m_fd != -1) {
+		if (::close(m_fd))
+			wftp_log("failed to close fd %d: %m", m_fd);
+		m_fd = -1;
 	}
 }
 
 void SocketBase::send(const void *buf0, size_t size) {
-	int fd;
-	if (!m_fd || (fd = m_fd->fd) == -1)
+	if (m_fd < 0)
 		throw WFTPError("attempt to write to unbinded socket");
 	const char *buf = static_cast<const char *>(buf0);
 	while (size) {
-		ssize_t s = ::send(fd, buf, size, 0);
+		ssize_t s = ::send(m_fd, buf, size, 0);
 		if (s < 0)
 			throw WFTPError("socket: failed to write: %s", strerror(errno));
 		size -= s;
@@ -76,22 +84,20 @@ void SocketBase::send(const void *buf0, size_t size) {
 }
 
 size_t SocketBase::recv(void *buf, size_t max_size) {
-	int fd;
-	if (!m_fd || (fd = m_fd->fd) == -1)
+	if (m_fd < 0)
 		throw WFTPError("attempt to write to unbinded socket");
-	ssize_t s = ::recv(fd, buf, max_size, 0);
+	ssize_t s = ::recv(m_fd, buf, max_size, 0);
 	if (s < 0)
 		throw WFTPError("socket: failed to read: %s", strerror(errno));
 	return s;
 }
 
 void SocketBase::recv_fixsize(void *buf0, size_t size) {
-	int fd;
-	if (!m_fd || (fd = m_fd->fd) == -1)
+	if (m_fd < 0)
 		throw WFTPError("attempt to write to unbinded socket");
 	char *buf = static_cast<char *>(buf0);
 	while (size) {
-		ssize_t s = ::recv(fd, buf, size, 0);
+		ssize_t s = ::recv(m_fd, buf, size, 0);
 		if (s < 0)
 			throw WFTPError("socket: failed to read: %s", strerror(errno));
 		size -= s;
@@ -138,7 +144,6 @@ ServerSocket::ServerSocket(uint16_t port, int backlog) {
 	srv_addr.sin_family = AF_INET;
 	srv_addr.sin_addr.s_addr = INADDR_ANY;
 	srv_addr.sin_port = htons(port);
-	m_srvsock.fd = sockfd;
 
 	int optval = 1;
 
@@ -160,10 +165,10 @@ void SocketBase::enable_timeout() {
 	timeout.tv_sec = SOCKET_TIMEOUT;
 	timeout.tv_usec = 0;
 
-	if (setsockopt(m_fd->fd, SOL_SOCKET, SO_RCVTIMEO,
+	if (setsockopt(m_fd, SOL_SOCKET, SO_RCVTIMEO,
 				(const char *) &timeout, sizeof(timeout)))
 		throw WFTPError("setsockopt: %m");
-	if (setsockopt(m_fd->fd, SOL_SOCKET, SO_SNDTIMEO,
+	if (setsockopt(m_fd, SOL_SOCKET, SO_SNDTIMEO,
 				(const char *) &timeout, sizeof(timeout)))
 		throw WFTPError("setsockopt: %m");
 }
@@ -173,7 +178,7 @@ std::shared_ptr<SocketBase> ServerSocket::accept() {
 	socklen_t cli_addr_len = sizeof(cli_addr);
 	int clifd;
 	for (; ; ) {
-		clifd = ::accept(m_srvsock.fd,
+		clifd = ::accept(get_socket_fd(),
 			(struct sockaddr*)&cli_addr, &cli_addr_len);
 		if (clifd == -1) {
 			if (errno != EINTR)

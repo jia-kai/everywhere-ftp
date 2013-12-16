@@ -1,6 +1,6 @@
 /*
  * $File: common.cc
- * $Date: Sun Dec 15 23:39:11 2013 +0800
+ * $Date: Mon Dec 16 17:35:44 2013 +0800
  * $Author: jiakai <jia.kai66@gmail.com>
  */
 
@@ -21,14 +21,6 @@
 #include <unistd.h>
 
 #include <sys/time.h>
-
-void FDCloser::close() {
-	if (fd != -1) {
-		if (::close(fd))
-			wftp_log("failed to close fd %d: %m", fd);
-		fd = -1;
-	}
-}
 
 WFTPError::WFTPError(const char *fmt, ...)
 {

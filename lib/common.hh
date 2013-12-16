@@ -1,6 +1,6 @@
 /*
  * $File: common.hh
- * $Date: Mon Dec 16 15:14:44 2013 +0800
+ * $Date: Mon Dec 16 17:31:31 2013 +0800
  * $Author: jiakai <jia.kai66@gmail.com>
  */
 
@@ -12,22 +12,6 @@
 #include <string>
 #include <sstream>
 
-/*!
- * \brief close the file describer on destruction
- */
-struct FDCloser
-{
-	int fd;
-	FDCloser(int f = -1):
-		fd(f)
-	{}
-
-	void close();
-
-	~FDCloser() {
-		close();
-	}
-};
 
 /*!
  * \brief string stream with C printf-like functions

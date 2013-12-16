@@ -1,6 +1,6 @@
 /*
  * $File: wftp_server.cc
- * $Date: Mon Dec 16 21:41:01 2013 +0800
+ * $Date: Mon Dec 16 22:28:47 2013 +0800
  * $Author: jiakai <jia.kai66@gmail.com>
  */
 
@@ -86,8 +86,6 @@ class WFTPServer::ClientHandler {
 
 	// LIST and NLST
 	void do_list() {
-		auto data_conn = get_data_conn("start directory listing");
-
 		const char* opt = m_cur_cmd.cmd == "LIST" ?
 			"-al --group-directories-first" : "-a --group-directories-first";
 		std::string path = m_cur_cmd.arg;
@@ -107,6 +105,7 @@ class WFTPServer::ClientHandler {
 		path = safe_realpath(path);
 		std::string ls_cmd = ssprintf("ls %s %s | tail -n +2", opt, path.c_str());
 
+		auto data_conn = get_data_conn("start directory listing");
 		capture_subproc_output(
 			[data_conn](const void *buf, size_t size) {
 				data_conn->send_crlf(static_cast<const char*>(buf), size);
@@ -139,23 +138,19 @@ class WFTPServer::ClientHandler {
 
 	// SIZE
 	void do_size() {
-		bool suc;
 		std::string size,
-			realpath = safe_realpath(m_cur_cmd.arg, &suc);
-		if (!suc)
-			size = "can not get size of " + m_cur_cmd.arg;
-		else
-			size = get_filesize(realpath.c_str(), &suc);
+			realpath = safe_realpath(m_cur_cmd.arg);
+		bool suc;
+		size = get_filesize(realpath.c_str(), &suc);
 		m_parser.send(suc ? "213" : "550", size);
 	}
 
 	// RETR
 	void do_retr() {
-		bool suc;
-		auto realpath = safe_realpath(m_cur_cmd.arg, &suc);
-		FILE *fin = suc ? fopen(realpath.c_str(), "rb") : nullptr;
+		auto realpath = safe_realpath(m_cur_cmd.arg);
+		FILE *fin = fopen(realpath.c_str(), "rb");
 		if (!fin) {
-			m_parser.send("550", ssprintf("failed to open `%s'", m_cur_cmd.arg.c_str()));
+			m_parser.send("550", "failed to open file");
 			return;
 		}
 		AutoCloser _ac(fin);
@@ -178,9 +173,8 @@ class WFTPServer::ClientHandler {
 
 	// STOR
 	void do_stor() {
-		bool suc;
-		auto realpath = safe_realpath(m_cur_cmd.arg, &suc, true);
-		FILE *fout = suc ? fopen(realpath.c_str(), "wb") : nullptr;
+		auto realpath = safe_realpath(m_cur_cmd.arg, true);
+		FILE *fout = fopen(realpath.c_str(), "wb");
 		if (!fout) {
 			m_parser.send("553", ssprintf("failed to open `%s' for write",
 						m_cur_cmd.arg.c_str()));
@@ -203,12 +197,7 @@ class WFTPServer::ClientHandler {
 
 	// DELE and RMD
 	void do_remove() {
-		bool suc;
-		auto realpath = safe_realpath(m_cur_cmd.arg, &suc);
-		if (!suc) {
-			m_parser.send("550", "file not found");
-			return;
-		}
+		auto realpath = safe_realpath(m_cur_cmd.arg);
 		int rst;
 		if (m_cur_cmd.cmd == "DELE")
 			rst = unlink(realpath.c_str());
@@ -224,12 +213,7 @@ class WFTPServer::ClientHandler {
 
 	// MKD
 	void do_mkd() {
-		bool suc;
-		auto realpath = safe_realpath(m_cur_cmd.arg, &suc, true);
-		if (!suc) {
-			m_parser.send("550", "parent directory not exist");
-			return;
-		}
+		auto realpath = safe_realpath(m_cur_cmd.arg, true);
 		if (mkdir(realpath.c_str(), 0755))
 			m_parser.send("550", ssprintf("failed to mkdir `%s': %m",
 					realpath.c_str()));
@@ -243,9 +227,7 @@ class WFTPServer::ClientHandler {
 	}
 
 	std::string safe_realpath(const std::string &fpath,
-			bool *successful = nullptr, bool allow_nonexist_file = false) {
-		if (successful)
-			*successful = false;
+			bool allow_nonexist_file = false) {
 		auto &rootdir = m_server.m_rootdir;
 		std::string dirname, basename, realpath_query;
 		if (allow_nonexist_file) {
@@ -259,27 +241,28 @@ class WFTPServer::ClientHandler {
 			realpath_query = dirname;
 		} else
 			realpath_query = fpath;
+
 		char *rst;
 		if (realpath_query[0] == '/')
 			rst = realpath((rootdir + realpath_query).c_str(), nullptr);
 		else
 			rst = realpath((rootdir + m_working_dir + "/" + realpath_query)
 					.c_str(), nullptr);
-		if (!rst)
-			return m_server.m_rootdir;
+		if (!rst) {
+			m_parser.send("550", "bad file path");
+			throw AbortCurrentFTPCommand();
+		}
 		std::string ret(rst);
 		free(rst);
 		if (ret.substr(0, rootdir.length()) != rootdir &&
-				ret != rootdir.substr(0, rootdir.length() - 1))
-			ret = rootdir;
-		else {
-			if (successful)
-				*successful = true;
-			if (allow_nonexist_file) {
-				if (ret.back() != '/')
-					ret.append("/");
-				ret.append(basename);
-			}
+				ret != rootdir.substr(0, rootdir.length() - 1)) {
+			m_parser.send("550", "bad file path");
+			throw AbortCurrentFTPCommand();
+		}
+		if (allow_nonexist_file) {
+			if (ret.back() != '/')
+				ret.append("/");
+			ret.append(basename);
 		}
 		return ret;
 	}

@@ -1,6 +1,6 @@
 /*
  * $File: main.cc
- * $Date: Mon Dec 16 21:58:29 2013 +0800
+ * $Date: Mon Dec 16 22:21:46 2013 +0800
  * $Author: jiakai <jia.kai66@gmail.com>
  */
 
@@ -12,6 +12,8 @@
 #include <cstdlib>
 #include <cstring>
 #include <cctype>
+
+#include <unistd.h>
 
 class AbortCurCmd { };
 class Exit {};
@@ -64,9 +66,9 @@ class WFTPClient {
 			send_cmd("TYPE I");
 		}
 
-		void list(FILE *fout) {
+		void list(const std::string &path, FILE *fout) {
 			auto data_conn = open_pasv_data_conn();
-			send_cmd("LIST");
+			send_cmd("LIST " + path);
 			for (;; ) {
 				size_t s = data_conn->recv(m_buf, sizeof(m_buf));
 				if (s <= 0)
@@ -140,7 +142,7 @@ static void interactive_console(WFTPClient &client) {
 		try {
 			read_user_command(cmd, arg);
 			if (cmd == "ls")
-				client.list(stdout);
+				client.list(arg, stdout);
 			else if (cmd == "q")
 				throw Exit();
 			else if (cmd == "cd")
@@ -163,8 +165,14 @@ static void interactive_console(WFTPClient &client) {
 							arg.c_str());
 					throw AbortCurCmd();
 				}
-				AutoCloser _ac(fout);
-				client.recv_file(arg, fout);
+				try {
+					client.recv_file(arg, fout);
+				} catch (...) {
+					fclose(fout);
+					unlink(arg.c_str());
+					throw;
+				}
+				fclose(fout);
 			}
 		} catch (AbortCurCmd) {
 		} catch (Exit) {

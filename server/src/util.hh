@@ -1,6 +1,6 @@
 /*
  * $File: util.hh
- * $Date: Mon Dec 16 17:17:13 2013 +0800
+ * $Date: Mon Dec 16 22:18:07 2013 +0800
  * $Author: jiakai <jia.kai66@gmail.com>
  */
 
@@ -22,6 +22,7 @@ void capture_subproc_output(
 std::string get_filesize(const char *fpath, bool *successful = nullptr);
 
 bool isdir(const char *fpath);
+bool isregular(const char *fpath);
 
 // vim: syntax=cpp11.doxygen foldmethod=marker foldmarker=f{{{,f}}}
 

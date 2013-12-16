@@ -1,6 +1,6 @@
 /*
  * $File: util.cc
- * $Date: Mon Dec 16 17:17:41 2013 +0800
+ * $Date: Mon Dec 16 22:19:10 2013 +0800
  * $Author: jiakai <jia.kai66@gmail.com>
  */
 
@@ -71,6 +71,13 @@ bool isdir(const char *fpath) {
 	if (::stat(fpath, &stat)) 
 		return false;
 	return S_ISDIR(stat.st_mode);
+}
+
+bool isregular(const char *fpath) {
+	struct stat stat;
+	if (::stat(fpath, &stat)) 
+		return false;
+	return S_ISREG(stat.st_mode);
 }
 
 // vim: syntax=cpp11.doxygen foldmethod=marker foldmarker=f{{{,f}}}

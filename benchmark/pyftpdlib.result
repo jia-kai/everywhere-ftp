@@ -1,8 +1,9 @@
-STOR (client -> server)                              658.38 MB/sec
-RETR (server -> client)                             1127.48 MB/sec
-300 concurrent clients (connect, login)                1.86 secs
-STOR (1 file with 300 idle clients)                  634.53 MB/sec
-RETR (1 file with 300 idle clients)                 1554.75 MB/sec
-300 concurrent clients (RETR 10.0M file)               3.34 secs
-300 concurrent clients (STOR 10.0M file)               7.52 secs
-300 concurrent clients (QUIT)                          0.05 secs
+(starting with 13.4M of memory being used)
+STOR (client -> server)                              689.72 MB/sec  13.4M
+RETR (server -> client)                             1517.02 MB/sec  13.4M
+300 concurrent clients (connect, login)                2.26 secs    13.4M
+STOR (1 file with 300 idle clients)                  688.93 MB/sec  13.4M
+RETR (1 file with 300 idle clients)                 1534.30 MB/sec  13.4M
+300 concurrent clients (RETR 10.0M file)               3.30 secs    13.4M
+300 concurrent clients (STOR 10.0M file)               8.11 secs    15.0M
+300 concurrent clients (QUIT)                          0.07 secs

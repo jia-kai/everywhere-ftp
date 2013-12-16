@@ -1,6 +1,6 @@
 /*
  * $File: wftp_server.cc
- * $Date: Mon Dec 16 20:22:14 2013 +0800
+ * $Date: Mon Dec 16 21:41:01 2013 +0800
  * $Author: jiakai <jia.kai66@gmail.com>
  */
 
@@ -60,6 +60,7 @@ class WFTPServer::ClientHandler {
 
 	// QUIT
 	void do_quit() {
+		m_parser.send("221", "Goodbye:)");
 		throw ClientExit();
 	}
 
@@ -87,7 +88,8 @@ class WFTPServer::ClientHandler {
 	void do_list() {
 		auto data_conn = get_data_conn("start directory listing");
 
-		const char* opt = m_cur_cmd.cmd == "LIST" ? "-al" : "-a";
+		const char* opt = m_cur_cmd.cmd == "LIST" ?
+			"-al --group-directories-first" : "-a --group-directories-first";
 		std::string path = m_cur_cmd.arg;
 
 		while (path[0] == '-') { // ignore all options (sent by chrome)
@@ -236,7 +238,6 @@ class WFTPServer::ClientHandler {
 	}
 
 	void close_data_conn(std::shared_ptr<SocketBase> socket, const char *msg) {
-		usleep(1000);
 		m_parser.send("226", msg);
 		socket->close();
 	}
@@ -399,9 +400,9 @@ void WFTPServer::worker_thread(ClientHandler *client) {
 
 void WFTPServer::serve_forever() {
 	ServerSocket socket(m_port);
-	wftp_log("listening on %s:%d ...",
+	wftp_log("listening on %s:%d, rootdir=%s ...",
 			SocketBase::format_addr(socket.local_addr()).c_str(),
-			socket.local_port());
+			socket.local_port(), m_rootdir.c_str());
 	for (int cli_id = 0; ; cli_id ++) {
 		ClientHandler *client = new ClientHandler(*this, socket.accept(), cli_id);
 		std::thread sub(worker_thread, client);

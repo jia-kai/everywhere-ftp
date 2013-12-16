@@ -1,6 +1,6 @@
 /*
  * $File: socket.hh
- * $Date: Mon Dec 16 19:36:00 2013 +0800
+ * $Date: Mon Dec 16 21:11:43 2013 +0800
  * $Author: jiakai <jia.kai66@gmail.com>
  */
 
@@ -39,6 +39,10 @@ class SocketBase {
 				send(msg + start, size - start);
 		}
 
+		void send_crlf(const std::string &msg) {
+			send_crlf(msg.c_str(), msg.size());
+		}
+
 		static std::string format_addr(addr_t addr, const char sep = '.') {
 			return ssprintf("%d%c%d%c%d%c%d",
 					(addr>>24)&0xFF, sep,
@@ -59,7 +63,7 @@ class SocketBase {
 			return m_peerinfo.c_str();
 		}
 
-		std::shared_ptr<SocketBase> connect(
+		static std::shared_ptr<SocketBase> connect(
 				const char *host, const char *service);
 
 		/*!

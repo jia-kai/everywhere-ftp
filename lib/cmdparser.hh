@@ -1,6 +1,6 @@
 /*
  * $File: cmdparser.hh
- * $Date: Mon Dec 16 20:07:57 2013 +0800
+ * $Date: Mon Dec 16 21:23:46 2013 +0800
  * $Author: jiakai <jia.kai66@gmail.com>
  */
 
@@ -31,10 +31,18 @@ class CMDParser {
 			static thread_local char buf[1024];
 
 			CMDPair rst;
-			size_t size = m_socket->recv(buf, sizeof(buf));
+			size_t size = 0;
+			for (; ; ) {
+				if (!m_socket->recv(buf + size, 1))
+					throw WFTPError(
+							"unexpected EOF when trying to find line break");
+				if (buf[size] == '\n')
+					break;
+				size ++;
+			}
+			if (size && buf[size - 1] == '\r')
+				size --;
 			buf[size] = 0;
-			while (size && (buf[size - 1] == '\r' || buf[size - 1] == '\n'))
-				buf[-- size] = 0;
 			rst.cmd.assign(buf);
 			for (size_t i = 0; i < size; i ++)
 				if (std::isspace(buf[i])) {

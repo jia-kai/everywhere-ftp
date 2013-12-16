@@ -1,6 +1,6 @@
 /*
  * $File: wftp_server.cc
- * $Date: Mon Dec 16 17:44:14 2013 +0800
+ * $Date: Mon Dec 16 19:44:10 2013 +0800
  * $Author: jiakai <jia.kai66@gmail.com>
  */
 
@@ -28,6 +28,7 @@ class WFTPServer::ClientHandler {
 	std::string m_working_dir = "/";
 	CMDPair m_cur_cmd;
 	int m_cli_id;
+	char m_buf[1024 * 1024];
 
 	class ClientExit { };
 	class FinishHandling { };
@@ -157,14 +158,40 @@ class WFTPServer::ClientHandler {
 		auto data_conn = get_data_conn();
 		m_parser.send("150", ssprintf("going to transfer %s",
 					m_cur_cmd.arg.c_str()));
-		static thread_local char buf[1024 * 1024];
 		for (; ;) {
-			auto size = fread(buf, 1, sizeof(buf), fin);
+			auto size = fread(m_buf, 1, sizeof(m_buf), fin);
 			if (size <= 0)
 				break;
-			data_conn->send(buf, size);
+			data_conn->send(m_buf, size);
 		}
 		finish_transfer(data_conn, "transfer completed");
+	}
+
+	// ALLO
+	void do_allo() {
+		m_parser.send("202", "ALLO is superfluous");
+	}
+
+	// STOR
+	void do_stor() {
+		bool suc;
+		auto realpath = safe_realpath(m_cur_cmd.arg, &suc, true);
+		FILE *fout = suc ? fopen(realpath.c_str(), "wb") : nullptr;
+		if (!fout) {
+			m_parser.send("553", ssprintf("failed to open `%s' for write",
+						m_cur_cmd.arg.c_str()));
+			return;
+		}
+		auto data_conn = get_data_conn();
+		m_parser.send("150", "OK to transfer");
+		for (; ;) {
+			auto size = data_conn->recv(m_buf, sizeof(m_buf));
+			if (size <= 0)
+				break;
+			fwrite(m_buf, 1, sizeof(m_buf), fout);
+		}
+		wftp_log("recevied file %s", realpath.c_str());
+		finish_transfer(data_conn, "transfer complete");
 	}
 
 	void finish_transfer(std::shared_ptr<SocketBase> socket, const char *msg) {
@@ -174,24 +201,44 @@ class WFTPServer::ClientHandler {
 	}
 
 	std::string safe_realpath(const std::string &fpath,
-			bool *successful = nullptr) {
+			bool *successful = nullptr, bool allow_nonexist_file = false) {
 		if (successful)
 			*successful = false;
 		auto &rootdir = m_server.m_rootdir;
+		std::string dirname, basename, realpath_query;
+		if (allow_nonexist_file) {
+			basename = fpath;
+			for (int i = fpath.length() - 1; i >= 0; i --)
+				if (fpath[i] == '/') {
+					dirname.assign(fpath.c_str(), i);
+					basename.assign(fpath.c_str() + i);
+					break;
+				}
+			realpath_query = dirname;
+		} else
+			realpath_query = fpath;
 		char *rst;
-		if (fpath[0] == '/')
-			rst = realpath((rootdir + fpath).c_str(), nullptr);
+		if (realpath_query[0] == '/')
+			rst = realpath((rootdir + realpath_query).c_str(), nullptr);
 		else
-			rst = realpath((rootdir + m_working_dir + "/" + fpath)
+			rst = realpath((rootdir + m_working_dir + "/" + realpath_query)
 					.c_str(), nullptr);
 		if (!rst)
 			return m_server.m_rootdir;
 		std::string ret(rst);
 		free(rst);
-		if (ret.substr(0, rootdir.length()) != rootdir)
+		if (ret.substr(0, rootdir.length()) != rootdir &&
+				ret != rootdir.substr(0, rootdir.length() - 1))
 			ret = rootdir;
-		else if (successful)
-			*successful = true;
+		else {
+			if (successful)
+				*successful = true;
+			if (allow_nonexist_file) {
+				if (ret.back() != '/')
+					ret.append("/");
+				ret.append(basename);
+			}
+		}
 		return ret;
 	}
 
@@ -221,6 +268,8 @@ class WFTPServer::ClientHandler {
 			{"CWD", &ClientHandler::do_cwd},
 			{"SIZE", &ClientHandler::do_size},
 			{"RETR", &ClientHandler::do_retr},
+			{"ALLO", &ClientHandler::do_allo},
+			{"STOR", &ClientHandler::do_stor},
 		};
 		m_cur_cmd = m_parser.recv();
 		wftp_log("got command from %s: %s %s", get_peerinfo(),

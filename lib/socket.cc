@@ -1,10 +1,11 @@
 /*
  * $File: socket.cc
- * $Date: Mon Dec 16 17:44:09 2013 +0800
+ * $Date: Mon Dec 16 19:44:35 2013 +0800
  * $Author: jiakai <jia.kai66@gmail.com>
  */
 
 #define SOCKET_TIMEOUT	100
+
 #define SET_TCP_NODELAY
 
 #include "socket.hh"
@@ -23,6 +24,7 @@
 #include <netdb.h>
 #include <alloca.h>
 #include <arpa/inet.h>
+#include <sys/ioctl.h>
 
 SocketBase::SocketBase(int fd) {
 	set_socket_fd(fd);
@@ -84,8 +86,8 @@ void SocketBase::send(const void *buf0, size_t size) {
 }
 
 size_t SocketBase::recv(void *buf, size_t max_size) {
-	if (m_fd < 0)
-		throw WFTPError("attempt to write to unbinded socket");
+	if (is_closed())
+		return 0;
 	ssize_t s = ::recv(m_fd, buf, max_size, 0);
 	if (s < 0)
 		throw WFTPError("socket: failed to read: %s", strerror(errno));
@@ -93,8 +95,8 @@ size_t SocketBase::recv(void *buf, size_t max_size) {
 }
 
 void SocketBase::recv_fixsize(void *buf0, size_t size) {
-	if (m_fd < 0)
-		throw WFTPError("attempt to write to unbinded socket");
+	if (is_closed())
+		throw WFTPError("recv_fixsize from closed socket");
 	char *buf = static_cast<char *>(buf0);
 	while (size) {
 		ssize_t s = ::recv(m_fd, buf, size, 0);
@@ -103,6 +105,23 @@ void SocketBase::recv_fixsize(void *buf0, size_t size) {
 		size -= s;
 		buf += s;
 	}
+}
+
+bool SocketBase::is_closed() {
+	if (m_fd < 0)
+		throw WFTPError("attempt to operate on unbound socket");
+	fd_set rfd;
+	FD_ZERO(&rfd);
+	FD_SET(m_fd, &rfd);
+	timeval tv;
+	memset(&tv, 0, sizeof(tv));
+	select(m_fd + 1, &rfd, 0, 0, &tv);
+	if (!FD_ISSET(m_fd, &rfd))
+		return false;
+	int n = 0;
+	ioctl(m_fd, FIONREAD, &n);
+	wftp_log("%d", n);
+	return n == 0;
 }
 
 std::shared_ptr<SocketBase> SocketBase::connect(

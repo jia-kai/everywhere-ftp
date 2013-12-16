@@ -1,6 +1,6 @@
 /*
  * $File: socket.hh
- * $Date: Mon Dec 16 17:44:01 2013 +0800
+ * $Date: Mon Dec 16 19:36:00 2013 +0800
  * $Author: jiakai <jia.kai66@gmail.com>
  */
 
@@ -73,6 +73,8 @@ class SocketBase {
 		 */
 		addr_t local_addr() const
 		{ return m_local_addr; }
+
+		bool is_closed();
 
 	protected:
 		static std::shared_ptr<SocketBase>

@@ -1,6 +1,6 @@
 /*
  * $File: wftp_server.cc
- * $Date: Mon Dec 16 22:28:47 2013 +0800
+ * $Date: Mon Dec 16 22:36:59 2013 +0800
  * $Author: jiakai <jia.kai66@gmail.com>
  */
 
@@ -101,7 +101,6 @@ class WFTPServer::ClientHandler {
 		}
 		if (path.empty())
 			path = ".";
-		wftp_log("client %s: list dir: %s", get_peerinfo(), path.c_str());
 		path = safe_realpath(path);
 		std::string ls_cmd = ssprintf("ls %s %s | tail -n +2", opt, path.c_str());
 
@@ -131,9 +130,6 @@ class WFTPServer::ClientHandler {
 		m_working_dir.erase(0, m_server.m_rootdir.length() - 1);
 		m_parser.send("250", ssprintf("working dir changed to %s",
 					m_working_dir.c_str()).c_str());
-
-		wftp_log("client %s: chdir: %s", get_peerinfo(),
-				m_working_dir.c_str());
 	}
 
 	// SIZE
@@ -190,7 +186,8 @@ class WFTPServer::ClientHandler {
 			tot_size += size;
 			fwrite(m_buf, 1, size, fout);
 		}
-		wftp_log("recevied file `%s', size=%llu", realpath.c_str(),
+		wftp_log("client %s: upload file `%s', size=%llu",
+				get_peerinfo(), realpath.c_str(),
 				(unsigned long long)tot_size);
 		close_data_conn(data_conn, "transfer complete");
 	}
@@ -206,9 +203,12 @@ class WFTPServer::ClientHandler {
 		if (rst)
 			m_parser.send("550", ssprintf("failed to delete `%s': %m",
 						m_cur_cmd.arg.c_str()));
-		else
+		else {
+			wftp_log("client %s: delete `%s'",
+					get_peerinfo(), realpath.c_str());
 			m_parser.send("250", ssprintf("delete `%s' ok",
 						m_cur_cmd.arg.c_str()));
+		}
 	}
 
 	// MKD
@@ -301,7 +301,7 @@ class WFTPServer::ClientHandler {
 			{"MKD", &ClientHandler::do_mkd},
 		};
 		m_cur_cmd = m_parser.recv();
-		wftp_log("got command from %s: %s %s", get_peerinfo(),
+		wftp_log("client %s: %s %s", get_peerinfo(),
 				m_cur_cmd.cmd.c_str(), m_cur_cmd.arg.c_str());
 		auto hdl = HANDLER_MAP.find(m_cur_cmd.cmd);
 		if (hdl != HANDLER_MAP.end())

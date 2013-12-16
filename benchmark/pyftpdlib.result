@@ -1,0 +1,8 @@
+STOR (client -> server)                              658.38 MB/sec
+RETR (server -> client)                             1127.48 MB/sec
+300 concurrent clients (connect, login)                1.86 secs
+STOR (1 file with 300 idle clients)                  634.53 MB/sec
+RETR (1 file with 300 idle clients)                 1554.75 MB/sec
+300 concurrent clients (RETR 10.0M file)               3.34 secs
+300 concurrent clients (STOR 10.0M file)               7.52 secs
+300 concurrent clients (QUIT)                          0.05 secs

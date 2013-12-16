@@ -1,6 +1,6 @@
 /*
  * $File: wftp_server.cc
- * $Date: Mon Dec 16 22:36:59 2013 +0800
+ * $Date: Mon Dec 16 23:22:02 2013 +0800
  * $Author: jiakai <jia.kai66@gmail.com>
  */
 
@@ -222,8 +222,8 @@ class WFTPServer::ClientHandler {
 	}
 
 	void close_data_conn(std::shared_ptr<SocketBase> socket, const char *msg) {
-		m_parser.send("226", msg);
 		socket->close();
+		m_parser.send("226", msg);
 	}
 
 	std::string safe_realpath(const std::string &fpath,
@@ -273,6 +273,8 @@ class WFTPServer::ClientHandler {
 			throw AbortCurrentFTPCommand();
 		}
 		auto rst = m_data_srv->accept();
+		m_data_srv.reset();
+		m_pasv_mode = false;
 		m_parser.send("125", msg);
 		rst->enable_timeout();
 		return rst;

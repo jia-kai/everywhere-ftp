@@ -1,6 +1,6 @@
 /*
  * $File: wftp_server.cc
- * $Date: Mon Dec 16 23:58:02 2013 +0800
+ * $Date: Wed Dec 25 15:41:12 2013 +0800
  * $Author: jiakai <jia.kai66@gmail.com>
  */
 
@@ -171,7 +171,7 @@ class WFTPServer::ClientHandler {
 	// STOR
 	void do_stor() {
 		auto realpath = safe_realpath(m_cur_cmd.arg, true);
-		FILE *fout = isregular(realpath.c_str()) ?
+		FILE *fout = isregular(realpath.c_str(), true) ?
 			fopen(realpath.c_str(), "wb") : nullptr;
 		if (!fout) {
 			m_parser.send("553", ssprintf("failed to open `%s' for write",

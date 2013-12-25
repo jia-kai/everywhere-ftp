@@ -1,6 +1,6 @@
 /*
  * $File: main.cc
- * $Date: Mon Dec 16 22:21:46 2013 +0800
+ * $Date: Wed Dec 25 15:46:06 2013 +0800
  * $Author: jiakai <jia.kai66@gmail.com>
  */
 
@@ -114,6 +114,10 @@ class WFTPClient {
 			get_resp();
 		}
 
+		void pwd() {
+			send_cmd("PWD");
+		}
+
 		void quit() {
 			send_cmd("QUIT");
 		}
@@ -173,6 +177,10 @@ static void interactive_console(WFTPClient &client) {
 					throw;
 				}
 				fclose(fout);
+			} else if (cmd == "pwd") {
+				client.pwd();
+			} else  {
+				printf("commands: ls q cd rm put get\n");
 			}
 		} catch (AbortCurCmd) {
 		} catch (Exit) {

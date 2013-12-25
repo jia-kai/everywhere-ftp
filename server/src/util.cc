@@ -1,6 +1,6 @@
 /*
  * $File: util.cc
- * $Date: Mon Dec 16 22:19:10 2013 +0800
+ * $Date: Wed Dec 25 15:40:55 2013 +0800
  * $Author: jiakai <jia.kai66@gmail.com>
  */
 
@@ -73,9 +73,12 @@ bool isdir(const char *fpath) {
 	return S_ISDIR(stat.st_mode);
 }
 
-bool isregular(const char *fpath) {
+bool isregular(const char *fpath, bool allow_nonexist) {
 	struct stat stat;
-	if (::stat(fpath, &stat)) 
+	auto rst = ::stat(fpath, &stat);
+	if (rst && allow_nonexist && errno == ENOENT)
+		return true;
+	if (rst)
 		return false;
 	return S_ISREG(stat.st_mode);
 }

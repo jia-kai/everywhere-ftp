@@ -1,0 +1,127 @@
+% $File: report.tex
+% $Date: Fri Dec 27 16:22:33 2013 +0800
+% $Author: jiakai <jia.kai66@gmail.com>
+
+\documentclass[a4paper]{article}
+\usepackage{amsmath,amssymb,amsthm,fontspec,zhspacing,verbatim,graphicx}
+\usepackage[hyperfootnotes=false,colorlinks,linkcolor=black,anchorcolor=black,citecolor=black]{hyperref}
+\usepackage[top=2in, bottom=1.5in, left=1in, right=1in]{geometry}
+
+\newcommand{\addplot}[1]{\begin{center}
+	\includegraphics[width=0.8\textwidth]{#1}
+\end{center}}
+
+% \textref{marker}{text}
+\newcommand{\textref}[2]{\hyperref[#1]{#2}}
+\newcommand{\figref}[1]{\hyperref[fig:#1]{Figure~\ref*{fig:#1}}}
+\newcommand{\eqnref}[1]{\hyperref[eqn:#1]{(\ref*{eqn:#1})}}
+\newcommand{\lemref}[1]{\hyperref[lemma:#1]{Lemma~\ref*{lemma:#1}}}
+
+
+\zhspacing
+
+\title{FTP实验报告}
+\author{清华大学\\计14~贾开\\<jia.kai66@gmail.com>}
+\date{\today}
+
+\begin{document}
+\maketitle
+\tableofcontents
+
+\section{实验目的}
+遵循RFC959及其它相关标准，实现FTP客户端及服务器，
+进一步了解TCP/IP协议以及socket编程。
+
+\section{实验过程概述}
+本次实验在linux系统下完成，使用了C++11作为开发语言。
+首先将系统的socket API封装成了C++类，方便调用，且提供更安全的自动资源管理
+和更完善的异常处理。
+
+在服务器端，使用分离的线程处理每一个客户连接，在一个主循环中不断读取客户命令并进
+行相应处理。目前实现了passive模式以及以下命令： 
+\begin{quote}
+	ALLO, CWD, DELE, FEAT, LIST, MKD, NLST, PASS, PASV, PWD, QUIT, RETR, RMD,
+	SIZE, STOR, SYST, TYPE, USER
+\end{quote}
+
+服务器能够支持新建、删除目录，上传、下载、删除文件，列出目录内容，改变当前目录。
+可以使用lftp, firefox, chrome等常见客户端访问，运行效果如\figref{server}所示，
+其中左列是服务器日志信息，右列是lftp访问的操作过程。
+\begin{figure}[h!]
+	\addplot{../img/server.png}
+	\caption{\label{fig:server}服务器运行效果截图}
+\end{figure}
+
+客户端能够进行与服务器所实现的操作对应的操作，包括用匿名用户登录、
+取当前工作目录、改变工作目录、取目录内容列表、新建目录、删除目录、
+上传文件、下载文件、删除文件，客户端可以与标准ftp服务器(如vsftpd)通信。
+
+
+\section{实验亮点}
+\begin{enumerate}
+	\item 遵循RFC959，服务器与客户端均可单独与第三方客户端、服务器对接。
+	\item 使用C++11作为开发语言，兼顾语言表达的灵活性、系统API调用的便利性以及
+		程序效率。其中的\verb|shared_ptr|, \verb|auto|, \verb|thread|等极大地提
+		高了开发效率和程序鲁棒性。
+	\item 使用独立线程而非进程处理每个客户连接，保障了并发性和效率。
+	\item 安全性考虑，包括对每个用户文件操作先要检查是否在设定的FTP根目录内，
+		以及对被读写的文件进行类型判断，只能是regular file，不能是管道、设备文件
+		等系统中的特殊文件。
+\end{enumerate}
+
+\section{性能评测}
+pyftpdlib(\url{http://code.google.com/p/pyftpdlib})
+是一个开源的python ftp服务器实现，
+并且自带了一套benchmark框架。pyftpdlib的性能不输C实现的vsftpd。
+在此我也利用其框架测试了我的性能，并在相同环境下测试pyftpdlib性能以便对比。
+其中，我实现的ftp服务器命名为wftp。
+
+\subsection{测试环境}
+\begin{center}\begin{tabular}{ll}
+	CPU & Intel(R) Core(TM) i5-2450M CPU @ 2.50GHz, 2 cores, 2 threads/core \\
+	RAM & 5.7G \\
+	OS & arch linux \\
+	kernel & linux 3.10.7, customized configuration \\
+	gcc &   4.8.1 20130725 \\
+	compiler optimization & -O2 \\
+	python & 3.3.3 
+\end{tabular}\end{center}
+
+\subsection{测试结果}
+\begin{center}\begin{tabular}{l|l|l|l}
+	\hline
+	benchmark type & pyftpdlib 1.3.0 & wftp & speedup \\ \hline
+	STOR (client -> server) & 689.72 MB/sec & 770.09 MB/sec & 11.65\% \\
+	RETR (server -> client) & 1517.02 MB/sec & 1564.69 MB/sec & 3.14\% \\
+	300 concurrent clients (connect, login) & 2.26 secs & 0.83 secs & 172.3\% \\
+	STOR (1 file with 300 idle clients) & 
+		688.93 MB/sec & 906.02 MB/sec & 31.51\% \\
+	RETR (1 file with 300 idle clients) &
+		1534.30 MB/sec & 1465.18 MB/sec & -4.50\% \\
+	300 concurrent clients (RETR 10.0M file) &
+		3.30 secs & 4.97 secs & -33.60\% \\
+	300 concurrent clients (STOR 10.0M file) &
+		8.11 secs & 8.24 secs & -1.58\% \\
+	300 concurrent clients (QUIT) &  0.07 secs & 0.01 secs & 700\% \\
+	\hline
+\end{tabular}\end{center}
+
+其中，speedup 一列的计算方法为：
+\begin{quote}
+	对于每项评测内容，设pyftpdlib的值为$a$，wftp的值为$b$。
+	\begin{itemize}
+		\item 如果$a$, $b$的单位是MB/sec，则
+			\[ speedup = \dfrac{b-a}{a} \]
+		\item 如果$a$, $b$的单位是secs，则
+			\[ speedup = \dfrac{b^{-1}-a^{-1}}{a^{-1}} = \dfrac{a-b}{b} \]
+	\end{itemize}
+\end{quote}
+
+由评测结果可以看出，wftp作为一个轻量级C++实现，
+其在连续I/O下还是有明显性能优势的；
+但由于采用了线程，而pyftpdlib使用的是异步IO，故在高并发下性能明显减弱。
+
+\end{document}
+
+% vim: filetype=tex foldmethod=marker foldmarker=f{{{,f}}}
+

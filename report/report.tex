@@ -1,5 +1,5 @@
 % $File: report.tex
-% $Date: Fri Dec 27 16:22:33 2013 +0800
+% $Date: Wed Jan 01 18:26:19 2014 +0800
 % $Author: jiakai <jia.kai66@gmail.com>
 
 \documentclass[a4paper]{article}
@@ -29,7 +29,7 @@
 \tableofcontents
 
 \section{实验目的}
-遵循RFC959及其它相关标准，实现FTP客户端及服务器，
+遵循RFC959及其它相关标准，在Linux上实现FTP客户端及服务器，
 进一步了解TCP/IP协议以及socket编程。
 
 \section{实验过程概述}
@@ -120,6 +120,21 @@ pyftpdlib(\url{http://code.google.com/p/pyftpdlib})
 由评测结果可以看出，wftp作为一个轻量级C++实现，
 其在连续I/O下还是有明显性能优势的；
 但由于采用了线程，而pyftpdlib使用的是异步IO，故在高并发下性能明显减弱。
+
+\section{实验思考题}
+\begin{enumerate}
+	\item 为何需要建立命令和数据两个连接？ \\
+		这样可以在数据传输的同时执行非数据命令，还可以利用主动、被动方式直接在服
+		务器间传输数据无需中转。
+	\item 关于主动方式和被动方式 \\
+		两者均用于建立数据连接，主动方式是服务器连接到客户端，被动方式是客户端连
+		接到服务器。一般而言仅需被动方式即可，这样的好处是，可以通过客户端控制两
+		台服务器分别以主动和被动方式建立连接，让两台服务器间传输数据无需客户端中
+		转。
+	\item 大量小文件传输 \\
+		这是因为FTP协议中每传输一个文件都需要发送命令，等待服务器回应，并重新建
+		立数据连接。可以将文件打包传输。
+\end{enumerate}
 
 \end{document}
 

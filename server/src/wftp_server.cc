@@ -1,6 +1,6 @@
 /*
  * $File: wftp_server.cc
- * $Date: Wed Dec 25 15:41:12 2013 +0800
+ * $Date: Fri Jan 03 14:07:55 2014 +0800
  * $Author: jiakai <jia.kai66@gmail.com>
  */
 
@@ -335,10 +335,10 @@ class WFTPServer::ClientHandler {
 				for (; ;) {
 					try {
 						handle_cmd();
-					} catch (AbortCurrentFTPCommand) {
+					} catch (AbortCurrentFTPCommand&) {
 					}
 				}
-			} catch (ClientExit) {
+			} catch (ClientExit&) {
 			}
 		}
 

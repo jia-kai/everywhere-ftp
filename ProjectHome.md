@@ -1,0 +1,1 @@
+it's actually called wftp, everyWhereFTP, containing both FTP client and server. It is a project on the networking course, but I hope it could be robust enough for daily use, especially for dropping a temporary light-weight FTP server anywhere.
